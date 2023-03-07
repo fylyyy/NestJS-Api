@@ -67,20 +67,82 @@ export class AuthService {
     if (!pwMatches)
       throw new ForbiddenException('Password incorrect');
     //return token
-    return this.signToken(user.id, user.email)
+    return this.signTokens(user.id, user.email);
   }
 
-  async signToken(userId: number, email: string): Promise<{access_token: string}> {
+  async signTokens(
+    userId: number,
+    email: string,
+  ): Promise<{
+    access_token: string;
+    refresh_token: string;
+  }> {
     const payload = {
       sub: userId,
       email,
     };
 
-    const token = await this.jwt.signAsync(payload, {
-      expiresIn: '15m',
-      secret: this.config.get('JWT_SECRET'),
+    const access_token = await this.jwt.signAsync(payload, {
+      expiresIn: '30m',
+      secret: this.config.get('JWT_ACCESS_SECRET'),
     });
 
-    return {access_token: token}
+    const refresh_token = await this.jwt.signAsync(
+      payload,
+      {
+        expiresIn: '5d',
+        secret: this.config.get('JWT_REFRESH_SECRET'),
+      },
+    );
+
+    const hash = await argon.hash(refresh_token);
+
+    await this.prisma.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        refreshToken: hash,
+      },
+    });
+
+    return { access_token, refresh_token };
+  }
+
+  async refreshTokens(
+    userId: number,
+    refreshToken: string,
+  ): Promise<{
+    access_token: string;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+    });
+
+    if (!user || !user.refreshToken)
+      throw new ForbiddenException('Access denied');
+
+    const tokenMatches = await argon.verify(
+      user.refreshToken,
+      refreshToken,
+    );
+
+    if (!tokenMatches)
+      throw new ForbiddenException('Access denied');
+
+    return await this.signTokens(userId, user.email);
+  }
+
+  async logout(userId: number) {
+    await this.prisma.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        refreshToken: null,
+      },
+    });
   }
 }
