@@ -113,9 +113,32 @@ describe('App e2e', () => {
           .post('/auth/signin')
           .withBody(dto)
           .expectStatus(200)
-          .stores('userAt', 'access_token');
+          .stores('userAt', 'access_token')
+          .stores('userRt', 'refresh_token');
       });
     });
+
+    describe('RefreshToken', () => {
+      it('should generate new refreshToken', () => {
+        return pactum
+          .spec()
+          .get('/auth/refresh')
+          .withHeaders({
+            Authorization: 'Bearer $S{userRt}',
+          })
+          .expectStatus(200)
+          .stores('newUserRt', 'refresh_token');
+      })
+      it('Try to authenticate with wrong RT, should throw notAuthroized', () => {
+        return pactum
+          .spec()
+          .get('/auth/refresh')
+          .withHeaders({
+            Authorization: 'Bearer randomValue',
+          })
+          .expectStatus(401)
+      })
+    })
   });
 
   describe('User', () => {
@@ -258,4 +281,25 @@ describe('App e2e', () => {
       });
     });
   });
+
+  describe('Logout', () => {
+    it('should remove refreshTokenFrom DB', () => {
+      return pactum
+        .spec()
+        .post('/auth/logout')
+        .withHeaders({
+          Authorization: 'Bearer $S{userAt}',
+        })
+        .expectStatus(200);
+    })
+    it('Try to authenticate with old RT, should throw 403', () => {
+      return pactum
+        .spec()
+        .get('/auth/refresh')
+        .withHeaders({
+          Authorization: 'Bearer $S{userRt}',
+        })
+        .expectStatus(403)
+    })
+  })
 });
